@@ -12,8 +12,7 @@ class Node:
 
 class AVLTree:
     def __init__(
-        self,
-        key_getter: Callable[[Any], Union[int, str]] = lambda x: x
+        self, key_getter: Callable[[Any], Union[int, str]] = lambda x: x
     ) -> None:
         self.root = None
         self.key_getter = key_getter

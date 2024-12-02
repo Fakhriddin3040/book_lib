@@ -1,10 +1,10 @@
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, List
 
 
 def bin_search(arr: List[int], target: int) -> int:
     left = 0
     right = len(arr) - 1
-    while (left <= right):
+    while left <= right:
         mid = (left + right) // 2
         if arr[mid] == target:
             return mid
