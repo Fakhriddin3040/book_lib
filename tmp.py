@@ -1,19 +1,17 @@
-# from db.base import BaseEntity
-# from db.entities.fields import IntegerField, StringField
+from db.base import BaseEntity
+from db.entities.fields import IntegerField, StringField
+from utils.settings import lazy_settings
 
 
-# class UserEntity(BaseEntity):
-#     id = IntegerField()
-#     username = StringField(max_len=50, required=True)
+class UserEntity(BaseEntity):
+    storage = lazy_settings.DEFAULT_DATA_STORAGE()
 
-# user = UserEntity.storage.get(id=1)
+    id = IntegerField()
+    username = StringField(max_len=50, required=True)
+    age = IntegerField(required=True)
 
+user = UserEntity.create(age=12, username="python")
+user.username = "Python1"
+user.save()
 
-class Model:
-    @classmethod
-    def _setup_storage(cls, storage):
-        cls.storage = storage
-
-class NeedModel:
-    def __init__(self):
-        
+got_user = UserEntity.storage.get(id=user.id)

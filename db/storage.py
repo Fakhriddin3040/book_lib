@@ -2,20 +2,20 @@ import json
 import os
 from typing import Any, Dict, List, Union
 
-from db.base import BaseDataStorage
-from db.types import BaseEntity, BaseModelContainer
+from db.base import BaseDataStorage, BaseEntity, BaseEntityField, BaseModelContainer
 from src.utils.functions import create_file_force
 from utils.settings import lazy_settings
 
 
 class BaseFileDataStorage(BaseDataStorage):
-    def __init__(self, *args, **kwargs) -> None:
-        model = kwargs['model']
-        self.filepath = os.path.join(
-            lazy_settings.DATA_DIR, f"{model.__class__.__name__.lower()}.{self.file_format}"
-        )
-        super().__init__(*args, **kwargs)
+    def _init(self, *args, **kwargs) -> None:
+        model = args[0]
         self.encoding = "utf-8"
+        self.filepath = os.path.join(
+            lazy_settings.DATA_DIR,
+            f"{model.__name__.lower()}.{self.file_format}",
+        )
+        super()._init(*args, **kwargs)
 
     def init_storage(self) -> None:
         create_file_force(self.filepath)
@@ -36,7 +36,7 @@ class BaseFileDataStorage(BaseDataStorage):
 
         lines[line_number] = new_line + "\n"
 
-        with open(self.filepath, "w", encoding=self.encoding) as file:
+        with open(self.filepath, "a", encoding=self.encoding) as file:
             file.writelines(lines)
 
     def _read_file(self) -> List[str]:
@@ -50,10 +50,6 @@ class BaseFileDataStorage(BaseDataStorage):
 
 
 class FileDataStorage(BaseFileDataStorage):
-
-    def __getattr__(self, name):
-        if not self.model:
-            raise ValueError("Model is not set")
 
     def _init(self, *args, **kwargs):
         """
@@ -86,15 +82,16 @@ class FileDataStorage(BaseFileDataStorage):
         self.fields_idx_map = self.get_fields_indexes_map()
         self.ensure_storage()
         self.latest_id = self.get_latest_id()
+        self.container = self.load_model_container()
 
     def get(self, id: int) -> Dict[str, Any]:
         instance = self._get_from_container(id=id)
         if not instance:
-            raise ValueError(f"No {self.model.__name__} with id {id}")
+            raise ValueError(f"No {self.model_class.__name__} with id {id}")
         return instance
 
     def _get_from_container(self, id: int) -> Union[BaseEntity, None]:
-        return self.container_class.search(value=id)
+        return self.container.search(value=id)
 
     def _parse_instance(self, data: str) -> BaseEntity:
         instance = self.get_model_instance()
@@ -104,9 +101,13 @@ class FileDataStorage(BaseFileDataStorage):
         for idx, value in enumerate(values):
             field_name = fields_map_list[idx]
             field = self.model_fields_map[field_name]
+            value = self._convert_value_to_type(field, value)
             field.validate(value)
             setattr(instance, field_name, value)
         return instance
+
+    def _convert_value_to_type(self, field: BaseEntityField, value):
+        return field.typ(value)
 
     def unparse_instance(self, instance: BaseEntity) -> str:
         return self.text_sep.join(
@@ -145,16 +146,9 @@ class FileDataStorage(BaseFileDataStorage):
 
         with open(self.filepath, "r", encoding=self.encoding) as f:
             for index, line in enumerate(f.readlines()):
-                if line.split(self.text_sep)[self.fields_idx_map[field]] == value:
+                if line.split(self.text_sep)[self.fields_idx_map[field]] == str(value):
                     return index
         return None
-
-    def load_data(self, **model_container_kwargs) -> None:
-        self.data = self._load_data()
-        self.init_model_container(**model_container_kwargs)
-        for line in self.data:
-            instance = self._parse_instance(line)
-            self.model_container.add(instance)
 
     def init_model_container(self, **kwargs) -> BaseModelContainer:
         return self.container_class(**kwargs)
@@ -177,6 +171,34 @@ class FileDataStorage(BaseFileDataStorage):
         super().init_storage()
         with open(self.filepath, "w", encoding=self.encoding):
             pass
+
+    def _load_instances(self) -> List[BaseEntity]:
+        instances = []
+        for data in self._read_file():
+            instances.append(self._parse_instance(data=data))
+        return instances
+
+    def load_model_container(self):
+        container = self.container_class(self.model_class)
+        instances = self._load_instances()
+        for instance in instances:
+            container.insert(instance)
+        return container
+
+    def delete(self, entity: Union[int, BaseEntity]) -> None:
+        if isinstance(entity, int):
+            self.delete_instance_by_id(entity)
+        else:
+            self.delete_instance_by_id(entity.id)
+
+    def _delete(self, id: int) -> None:
+        line = self._find_line_number_by_field("id", id)
+        if line is not None:
+            with open(self.filepath, "r", encoding=self.encoding) as f:
+                lines = f.readlines()
+            del lines[line]
+            with open(self.filepath, "w", encoding=self.encoding) as f:
+                f.writelines(lines)
 
     # def parse(self, **kwargs) -> Any:
     #     """

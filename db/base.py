@@ -2,12 +2,21 @@ from typing import Any, Dict, List, Union
 from utils.settings import lazy_settings
 
 
-class BaseEntity:
+class EntityMeta(type):
+    def __new__(cls, name, bases, dct):
+
+        new_cls = super().__new__(cls, name, bases, dct)
+        new_cls._init_storage()
+        return new_cls
+
+
+class BaseEntity(metaclass=EntityMeta):
     fields = {}
 
     @classmethod
-    def _setup_storage(cls, storage) -> "BaseDataStorage":
-        
+    def _init_storage(cls) -> "BaseDataStorage":
+        if hasattr(cls, "storage"):
+            cls.storage._init(cls)
 
     def __init__(self, **kwargs):
         self.fields = self._get_fields()
@@ -39,15 +48,17 @@ class BaseEntity:
                 self.fields[f].value = v
 
     def __getattribute__(self, name):
-        if name == "fields":
-            return object.__getattribute__(self, "fields")
+        if name in ("fields", "_get_fields", "__dict__"):
+            return object.__getattribute__(self, name)
 
         fields = object.__getattribute__(self, "__dict__").get("fields", {})
         if name in fields:
             field = fields[name]
             if hasattr(field, "value"):
                 return field.value
-            raise AttributeError(f"'Field' object for '{name}' has no attribute 'value'")
+            raise AttributeError(
+                f"'Field' object for '{name}' has no attribute 'value'"
+            )
         return object.__getattribute__(self, name)
 
     def __setattr__(self, name, value):
@@ -58,7 +69,9 @@ class BaseEntity:
             if hasattr(field, "value"):
                 field.value = value
                 return
-            raise AttributeError(f"'Field' object for '{name}' has no attribute 'value'")
+            raise AttributeError(
+                f"'Field' object for '{name}' has no attribute 'value'"
+            )
 
         object.__setattr__(self, name, value)
 
@@ -66,30 +79,20 @@ class BaseEntity:
     def _get_fields(cls) -> Dict[str, "BaseEntityField"]:
         if hasattr(cls, "_cached_fields"):
             return cls._cached_fields
-        
+
         fields = {}
-        
+
         for base in cls.__mro__:
             fields.update(
-                {
-                    f: v
-                    for f, v in vars(base).items()
-                    if isinstance(v, BaseEntityField)
-                }
+                {f: v for f, v in vars(base).items() if isinstance(v, BaseEntityField)}
             )
         cls._cached_fields = fields
         return fields
 
 
 class BaseDataStorage:
-    def __getattr__(self, name):
-        if not self.model:
-            raise ValueError("Model is not set")
 
-    def __init__(self):
-        
-
-    def _init(self, *args, **kwargs):
+    def _init(self, model_class: BaseEntity, *args, **kwargs):
         """
         model_fields: Dict[str, BaseEntityField]. Fields of model,
             where key is field name and value is field instance.
@@ -112,9 +115,9 @@ class BaseDataStorage:
                 This done for fast access to fields by index.
                 You need not to parse fields names each time,
         """
+        self.model_class = model_class
         self.model_fields_map = self._get_model_fields()
         self.container_class: BaseModelContainer = lazy_settings.DEFAULT_MODEL_CONTAINER
-        self.container = self.load_model_container()
 
     def get_latest_id(self) -> int:
         raise NotImplementedError(
@@ -153,14 +156,14 @@ class BaseDataStorage:
         )
 
     def get_model_instance(self, *args, **kwargs) -> Any:
-        return self.model.__class__(*args, **kwargs)
+        return self.model_class(*args, **kwargs)
 
     def _build_instance(self, **kwargs) -> Any:
         instance = self.get_model_instance()
         return instance
 
     def _get_model_fields(self) -> Dict[str, Any]:
-        return self.model._get_fields()
+        return self.model_class._get_fields()
 
     def load_model_container(self) -> None:
         raise NotImplementedError("Nuuuuuuh. Without this method NIKAK. Implement it!")
@@ -196,9 +199,7 @@ class BaseDataStorage:
         instance = self.get_model_instance()
         for key, value in kwargs.items():
             if key not in self.model_fields_map:
-                raise ValueError(
-                    f"Field {key} is not field of model {self.model}"
-                )
+                raise ValueError(f"Field {key} is not field of model {self.model}")
             setattr(instance, key, value)
         self.model_container.add(instance)
         self._save_instance(instance)
@@ -218,7 +219,7 @@ class BaseDataStorage:
             "You should implement load_data method ma brazaaa! Don't be lazy!"
         )
 
-    def load_data(self) -> None:
+    def _load_instances(self) -> None:
         """
         Load data from storage to temporary storage.
         """
@@ -279,7 +280,6 @@ class BaseEntityField:
         if name == "value":
             self.validate(value)
         super().__setattr__(name, value)
-
 
 
 class BaseModelContainer:

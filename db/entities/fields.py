@@ -1,5 +1,3 @@
-
-
 from db.base import BaseEntityField
 
 
